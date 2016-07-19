@@ -444,7 +444,8 @@ function GetJavascriptIndent()
       endwhile
       let cur = line('.')
       if cur < lnum && !s:InMultiVarStatement(v:lnum,1,0)
-        return indent(s:GetMSL(cur))
+        return indent(s:Match(lnum,s:continuation_regex) || s:Match(lnum,s:comma_last) ?
+              \ lnum : s:GetMSL(cur))
       end
     elseif counts =~ '1' || s:Onescope(lnum)
       return ind + s:sw()

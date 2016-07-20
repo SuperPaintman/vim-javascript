@@ -72,18 +72,18 @@ let s:line_term = '\s*\%(\%(\/\/.*\)\=\|\%(\/\*.*\*\/\s*\)*\)$'
 let s:continuation_regex = '\%([*.?:]\|+\@<!+\|-\@<!-\|\*\@<!\/\|=\|||\|&&\)' . s:line_term
 
 function s:Onescope(lnum)
+  if getline(a:lnum) =~ s:one_line_scope_regex
+    return 1
+  end
   let mypos = col('.')
-  if getline(a:lnum) =~ '\%(\<else\|\<do\|=>\)\C' . s:line_term ||
-        \ (cursor(a:lnum, match(getline(a:lnum),')' . s:line_term)) > -1 &&
-        \ s:lookForParens('(', ')', 'cbW', 0) > 0 &&
-        \ cursor(line('.'),match( ' ' . strpart(getline(line('.')),0,col('.') - 1),
-        \ '\<\%(catch\|else\|finally\|for\%(\s+each\)\=\|if\|let\|try\|while\|with\)\C' . s:line_term)) > -1) && 
-        \ (expand("<cword>") =~ 'while\C' ? !s:lookForParens('\<do\>', '\<while\>','bw',0) : 1)
-    call cursor(v:lnum, mypos)
-    echom a:lnum
+  call cursor(a:lnum, 1)
+  if search('.*\zs\<\%(while\|for\|if\)\>\s*(\C', 'ce', a:lnum) > 0 &&
+        \ s:lookForParens('(', ')', 'W', a:lnum) > 0 &&
+        \ col('.') == strlen(s:RemoveTrailingComments(getline(a:lnum)))
+    call cursor(a:lnum, mypos)
     return 1
   else
-    call cursor(v:lnum, mypos)
+    call cursor(a:lnum, mypos)
     return 0
   end
 endfunction
@@ -145,8 +145,9 @@ function s:GetMSL(lnum)
     " Otherwise, terminate search as we have found our MSL already.
     let line = getline(lnum)
     let line2 = getline(msl)
-    if ((s:Match(lnum,s:continuation_regex) || s:Match(lnum, s:comma_last)) &&
-          \ !s:Match(lnum, s:expr_case)) || s:IsInString(lnum, strlen(line))
+    if (((s:Match(lnum,s:continuation_regex) || s:Match(lnum, s:comma_last)) &&
+          \ !s:Match(lnum, s:expr_case)) || s:IsInString(lnum, strlen(line))) ||
+          \ s:Match(msl,s:operator_first)
       let msl = lnum
       if s:Match(lnum, s:line_pre . '[]})]')
         call cursor(lnum,1)
@@ -284,7 +285,7 @@ function s:ExitingOneLineScope(lnum)
     if s:Onescope(msl)
       return 0
     else
-      let prev_msl = s:GetMSL(msl - 1)
+      let prev_msl = s:GetMSL(s:PrevNonBlankNonString(msl - 1))
       if s:Onescope(prev_msl)
         return prev_msl
       endif
@@ -360,6 +361,7 @@ function GetJavascriptIndent()
   endif
 
 
+  let ind = indent(lnum)
   " If line starts with an operator...
   if (line =~ s:operator_first)
     if (s:Match(lnum, s:operator_first) || (s:Match(lnum, s:line_pre . '[])}]') &&
@@ -396,7 +398,11 @@ function GetJavascriptIndent()
       end
     elseif s:Match(lnum, s:operator_first)
       if counts !~ '1'
-        return indent(lnum) - s:sw()
+        if s:Onescope(s:PrevNonBlankNonString(s:GetMSL(lnum) - 1))
+          let ind -= s:sw()
+        else
+          return indent(lnum) - s:sw()
+        end
       end
     end
   end
@@ -432,7 +438,6 @@ function GetJavascriptIndent()
 
   " Set up variables for current line.
   let line = getline(lnum)
-  let ind = indent(lnum)
   " If the previous line contained an opening bracket, and we are still in it,
   " add indent depending on the bracket type.
   if s:Match(lnum, '[[({})\]]')
